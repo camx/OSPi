@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
+
 import gv
+from blinker import signal
+zone_change = signal('zone_change')
 
 try:
     import RPi.GPIO as GPIO  # Required for accessing General Purpose Input Output pins on Raspberry Pi
@@ -93,3 +97,4 @@ def set_output():
     disableShiftRegisterOutput()
     setShiftRegister(gv.srvals)  # gv.srvals stores shift register state
     enableShiftRegisterOutput()
+    zone_change.send()
