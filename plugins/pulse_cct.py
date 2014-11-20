@@ -41,6 +41,20 @@ def chatter(cct):
     gv.srvals = [0]*8
     set_output()
 
+def chatter_up(cct):
+    gv.srvals = [0]*8 #TODO read how many valves are in service, and which ones
+    set_output() #TODO switch on gpio functions after debugging
+    lv = 1
+    cntl = [2.0, 2.0, 1.8, 1.8, 1.6, 1.6, 1.4, 1.4, 1.2, 1.2, 1.0, 1.0, 0.8, 0.8, 0.6, 0.6, 0.4, 0.4, 0.2, 0.2]
+    for cnt in cntl:
+        #toggle cct
+        gv.srvals[cct] ^= lv
+        set_output()
+        sleep(cnt)
+    #switch everything off
+    gv.srvals = [0]*8
+    set_output()
+
 # define what happens when the index page is called
 class pulse:
 
@@ -58,5 +72,5 @@ class pulse:
         else:
             gv.curCCT = int(userData['CCT'])
 #            print 'Selected Circuit is %s' %gv.curCCT
-            chatter(gv.curCCT-1)
+            chatter_up(gv.curCCT-1)
             raise web.seeother("/pls")
