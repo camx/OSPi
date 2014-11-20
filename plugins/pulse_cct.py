@@ -10,6 +10,12 @@ import gpio_pins as gpio
 #urls = ('/pls', 'pulse')
 render = web.template.render('templates/')
 
+#enable/disable gpio output
+def passive_gpio():
+    return
+set_output = gpio.set_output
+#set_output = passive_gpio
+
 #app = web.application(urls, globals())
 
 urls.extend(['/pls', 'plugins.pulse_cct.pulse']) 
@@ -24,16 +30,16 @@ pulse_form = form.Form(
 pform = pulse_form()
 def chatter(cct):
     gv.srvals = [0]*8 #TODO read how many valves are in service, and which ones
-    gpio.set_output() #TODO switch on gpio functions after debugging
+    set_output() #TODO switch on gpio functions after debugging
     lv = 1
     for cnt in range(150):
         #toggle cct
         gv.srvals[cct] ^= lv
-        gpio.set_output()
+        set_output()
         sleep(0.2)
     #switch everything off
     gv.srvals = [0]*8
-    gpio.set_output()
+    set_output()
 
 # define what happens when the index page is called
 class pulse:
