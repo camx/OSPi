@@ -1,10 +1,15 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*-
-import json
 
+import i18n
+
+import json
+import ast
 import time
 import thread
 from calendar import timegm
+import sys
+sys.path.append('./plugins')
 
 import web  # the Web.py module. See webpy.org (Enables the Python OpenSprinkler web interface)
 import gv
@@ -16,15 +21,16 @@ from gpio_pins import set_output
 
 def timing_loop():
     """ ***** Main timing algorithm. Runs in a separate thread.***** """
-    print 'Starting timing loop \n'
+    try:
+        print _('Starting timing loop') + '\n'
+    except Exception:
+        pass
     last_min = 0
     while True:  # infinite loop
-        gv.now = timegm(time.localtime())   # Current time based on local time from the Pi. updated once per second.
-        gv.gmtnow = time.time()             # Current gmt time (needed for client-side JS code).
+        gv.now = timegm(time.localtime())   # Current time as timestamp based on local time from the Pi. updated once per second.
         if gv.sd['en'] and not gv.sd['mm'] and (not gv.sd['bsy'] or not gv.sd['seq']):
-            lt = time.gmtime(gv.now)
-            if (lt[3] * 60) + lt[4] != last_min:  # only check programs once a minute
-                last_min = (lt[3] * 60) + lt[4]
+            if gv.now / 60 != last_min:  # only check programs once a minute
+                last_min = gv.now / 60
                 extra_adjustment = plugin_adjustment()
                 for i, p in enumerate(gv.pd):  # get both index and prog item
                     # check if program time matches current time, is active, and has a duration
@@ -64,7 +70,7 @@ def timing_loop():
                         if gv.now >= gv.rs[sid][1]:  # check if time is up
                             gv.srvals[sid] = 0
                             set_output()
-                            gv.sbits[b] &= ~1 << s
+                            gv.sbits[b] &= ~(1 << s)
                             if gv.sd['mas'] - 1 != sid:  # if not master, fill out log
                                 gv.ps[sid] = [0, 0]
                                 gv.lrun[0] = sid
@@ -81,7 +87,7 @@ def timing_loop():
                                 set_output()
                                 gv.sbits[b] |= 1 << s  # Set display to on
                                 gv.ps[sid][0] = gv.rs[sid][3]
-                                gv.ps[sid][1] = gv.rs[sid][2] + 1  # testing display
+                                gv.ps[sid][1] = gv.rs[sid][2]
                                 if gv.sd['mas'] and gv.sd['mo'][b] & 1 << (s - (s / 8) * 80):  # Master settings
                                     masid = gv.sd['mas'] - 1  # master index
                                     gv.rs[masid][0] = gv.rs[sid][0] + gv.sd['mton']
@@ -133,7 +139,7 @@ def timing_loop():
                     gv.rs[gv.sd['mas'] - 1][1] = gv.now  # turn off master
 
         if gv.sd['urs']:
-            check_rain()
+            check_rain()  # in helpers.py
 
         if gv.sd['rd'] and gv.now >= gv.sd['rdst']:  # Check of rain delay time is up
             gv.sd['rd'] = 0
@@ -143,7 +149,7 @@ def timing_loop():
         #### End of timing loop ####
 
 
-class OSPyApp(web.application):
+class OSPiApp(web.application):
     """Allow program to select HTTP port."""
 
     def run(self, port=gv.sd['htp'], *middleware):  # get port number from options settings
@@ -151,7 +157,8 @@ class OSPyApp(web.application):
         return web.httpserver.runsimple(func, ('0.0.0.0', port))
 
 
-app = OSPyApp(urls, globals())
+app = OSPiApp(urls, globals())
+#  disableShiftRegisterOutput()
 web.config.debug = False  # Improves page load speed
 if web.config.get('_session') is None:
     web.config._session = web.session.Session(app, web.session.DiskStore('sessions'),
@@ -161,7 +168,10 @@ template_globals = {
     'str': str,
     'eval': eval,
     'session': web.config._session,
-    'json': json
+    'json': json,
+    'ast': ast,
+    '_': _,
+    'i18n': i18n
 }
 
 template_render = web.template.render('templates', globals=template_globals, base='base')
@@ -170,15 +180,23 @@ if __name__ == '__main__':
 
     #########################################################
     #### Code to import all webpages and plugin webpages ####
+
     import plugins
 
-    print 'plugins loaded:'
+    try:
+        print _('plugins loaded:')
+    except Exception:
+        pass
     for name in plugins.__all__:
         print ' ', name
 
     gv.plugin_menu.sort(key=lambda entry: entry[0])
+    #  Keep plugin manager at top of menu
+    try:
+        gv.plugin_menu.pop(gv.plugin_menu.index(['Manage Plugins', '/plugins']))
+    except Exception:
+        pass
 
-#    set_output()
     thread.start_new_thread(timing_loop, ())
 
     app.notfound = lambda: web.seeother('/')

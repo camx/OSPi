@@ -5,18 +5,52 @@ import re
 import time
 import datetime
 import web
+import io
+import ast
 
 import gv
 from helpers import *
 from gpio_pins import set_output
 from ospi import template_render
+from blinker import signal
 
-__author__ = 'Rimco'
+loggedin = signal('loggedin')
+def report_login():
+    loggedin.send()
 
+value_change = signal('value_change')
+def report_value_change():
+    value_change.send()
+
+option_change = signal('option_change')
+def report_option_change():
+    option_change.send()
+
+rebooted = signal('rebooted')
+def report_rebooted():
+    rebooted.send()
+
+station_names = signal('station_names')
+def report_station_names():
+    station_names.send()
+
+program_change = signal('program_change')
+def report_program_change():
+    program_change.send()
+
+program_deleted = signal('program_deleted')
+def report_program_deleted():
+    program_deleted.send()
+
+program_toggled = signal('program_toggled')
+def report_program_toggle():
+    program_toggled.send()
+
+
+### Web pages ######################
 
 class WebPage(object):
     def __init__(self):
-        gv.baseurl = baseurl()
         gv.cputemp = get_cpu_temp()
 
 
@@ -39,6 +73,7 @@ class login(WebPage):
             return template_render.login(my_signin)
         else:
             web.config._session.user = 'admin'
+            report_login()
             raise web.seeother('/')
 
 
@@ -50,6 +85,7 @@ class logout(WebPage):
 
 ###########################
 #### Class Definitions ####
+
 class home(ProtectedPage):
     """Open Home page."""
 
@@ -62,6 +98,7 @@ class change_values(ProtectedPage):
 
     def GET(self):
         qdict = web.input()
+        print 'qdict: ', qdict
         if 'rsn' in qdict and qdict['rsn'] == '1':
             stop_stations()
             raise web.seeother('/')
@@ -73,8 +110,8 @@ class change_values(ProtectedPage):
         if 'mm' in qdict and qdict['mm'] == '0':
             clear_mm()
         if 'rd' in qdict and qdict['rd'] != '0' and qdict['rd'] != '':
-            gv.sd['rd'] = float(qdict['rd'])
-            gv.sd['rdst'] = gv.now + gv.sd['rd'] * 3600 + 1  # +1 adds a smidge just so after a round trip the display hasn't already counted down by a minute.
+            gv.sd['rd'] = int(float(qdict['rd']))
+            gv.sd['rdst'] = int(gv.now + gv.sd['rd'] * 3600) # + 1  # +1 adds a smidge just so after a round trip the display hasn't already counted down by a minute.
             stop_onrain()
         elif 'rd' in qdict and qdict['rd'] == '0':
             gv.sd['rdst'] = 0
@@ -84,6 +121,7 @@ class change_values(ProtectedPage):
             except Exception:
                 pass
         jsave(gv.sd, 'sd')
+        report_value_change()
         raise web.seeother('/')  # Send browser back to home page
 
 
@@ -150,7 +188,8 @@ class change_options(ProtectedPage):
             gv.sd['htp'] = int(qdict['ohtp'])
         if 'osdt' in qdict:
             gv.sd['sdt'] = int(qdict['osdt'])
-
+        if 'olang' in qdict:
+           gv.sd['lang'] = qdict['olang']
         if 'omas' in qdict:
             gv.sd['mas'] = int(qdict['omas'])
         if 'omton' in qdict:
@@ -184,10 +223,16 @@ class change_options(ProtectedPage):
             gv.sd['lr'] = int(qdict['olr'])
 
         jsave(gv.sd, 'sd')
+        report_option_change()
         if 'rbt' in qdict and qdict['rbt'] == '1':
             gv.srvals = [0] * (gv.sd['nst'])
             set_output()
-            os.system('reboot')
+            report_rebooted()
+#            os.system('reboot')
+            reboot()
+
+        if 'rstrt' in qdict and qdict['rstrt'] == '1':
+            restart(1, True)
         raise web.seeother('/')
 
     def update_scount(self, qdict):
@@ -267,6 +312,7 @@ class change_stations(ProtectedPage):
         gv.snames = names
         jsave(names, 'snames')
         jsave(gv.sd, 'sd')
+        report_station_names()
         raise web.seeother('/')
 
 
@@ -290,7 +336,7 @@ class get_set_station(ProtectedPage):
                 status += str(gv.srvals[sid])
                 return status
             else:
-                return 'Station ' + str(sid+1) + ' not found.'
+                return _('Station ') + str(sid+1) + _(' not found.')
         elif gv.sd['mm']:
             if set_to:  # if status is
                 gv.rs[sid][0] = gv.now  # set start time to current time
@@ -308,7 +354,7 @@ class get_set_station(ProtectedPage):
                 time.sleep(1)
             raise web.seeother('/')
         else:
-            return 'Manual mode not active.'
+            return _('Manual mode not active.')
 
 
 class view_runonce(ProtectedPage):
@@ -396,6 +442,7 @@ class change_program(ProtectedPage):
             gv.pd[int(qdict['pid'])] = cp  # replace program
         jsave(gv.pd, 'programs')
         gv.sd['nprogs'] = len(gv.pd)
+        report_program_change()
         raise web.seeother('/vp')
 
 
@@ -411,6 +458,7 @@ class delete_program(ProtectedPage):
             del gv.pd[int(qdict['pid'])]
         jsave(gv.pd, 'programs')
         gv.sd['nprogs'] = len(gv.pd)
+        report_program_deleted()
         raise web.seeother('/vp')
 
 
@@ -421,6 +469,7 @@ class enable_program(ProtectedPage):
         qdict = web.input()
         gv.pd[int(qdict['pid'])][0] = int(qdict['enable'])
         jsave(gv.pd, 'programs')
+        report_program_toggle()
         raise web.seeother('/vp')
 
 
@@ -436,9 +485,8 @@ class clear_log(ProtectedPage):
     """Delete all log records"""
 
     def GET(self):
-        qdict = web.input()
-        with open('./data/log.json', 'w') as f:
-            f.write('')
+        with io.open('./data/log.json', 'w') as f:
+            f.write(u'')
         raise web.seeother('/vl')
 
 
@@ -467,17 +515,17 @@ class run_now(ProtectedPage):
         raise web.seeother('/')
 
 
-class show_revision(ProtectedPage):
-    """Show revision info to the user. Use: [URL of Pi]/rev."""
-
-    def GET(self):
-        revpg = '<!DOCTYPE html>\n'
-        revpg += 'Python Interval Program for OpenSprinkler Pi<br/><br/>\n'
-        revpg += 'Compatable with OpenSprinkler firmware 1.8.3.<br/><br/>\n'
-        revpg += 'Includes plugin architecture\n'
-        revpg += 'ospi.py version: v' + gv.ver_str + '<br/><br/>\n'
-        revpg += 'Updated ' + gv.ver_date + '\n'
-        return revpg
+# class show_revision(ProtectedPage):
+#     """Show revision info to the user. Use: [URL of Pi]/rev."""
+#
+#     def GET(self):
+#         revpg = '<!DOCTYPE html>\n'
+#         revpg += 'Python Interval Program for OpenSprinkler Pi<br/><br/>\n'
+#         revpg += 'Compatable with OpenSprinkler firmware 1.8.3.<br/><br/>\n'
+#         revpg += 'Includes plugin architecture\n'
+#         revpg += 'ospi.py version: v' + gv.ver_str + '<br/><br/>\n'
+#         revpg += 'Updated ' + gv.ver_date + '\n'
+#         return revpg
 
 
 class toggle_temp(ProtectedPage):
@@ -564,8 +612,8 @@ class api_log(ProtectedPage):
         records = read_log()
         data = []
 
-        for r in records:
-            event = json.loads(r)
+        for event in records:
+            #event = ast.literal_eval(json.loads(r))
 
             # return any records starting on this date
             if 'date' not in qdict or event['date'] == thedate:
@@ -585,9 +633,9 @@ class water_log(ProtectedPage):
 
     def GET(self):
         records = read_log()
-        data = "Date, Start Time, Zone, Duration, Program\n"
+        data = _("Date, Start Time, Zone, Duration, Program") + "\n"
         for r in records:
-            event = json.loads(r)
+            event = ast.literal_eval(json.dumps(r))
             data += event["date"] + ", " + event["start"] + ", " + str(event["station"]) + ", " + event[
                 "duration"] + ", " + event["program"] + "\n"
 
