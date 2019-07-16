@@ -62,7 +62,7 @@ def parse_manifest(plugin):
 
 
 def get_readme():
-    response = urllib.urlopen('https://api.github.com/repos/Dan-in-CA/SIP_plugins/readme')
+    response = urllib.urlopen('https://api.github.com/repos/camx/sip_plugins/readme')
     data = response.read()
     d = json.loads(data)
     text = base64.b64decode(d['content'])
